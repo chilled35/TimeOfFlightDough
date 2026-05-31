@@ -14,6 +14,8 @@ export class DoughVisualizer {
     this._lastValues = null;
     this._lastRes    = 8;
     this._isDelta    = true;
+    this._smoothed   = null;   // EMA-smoothed values
+    this._alpha      = 0.25;   // EMA factor: lower = smoother, higher = more responsive
 
     this._init3D();
     this._initHeatmap();
@@ -23,11 +25,24 @@ export class DoughVisualizer {
   // ---- Public API ----------------------------------------------------------
 
   update(values, res, isDelta) {
-    this._lastValues = values;
-    this._lastRes    = res;
-    this._isDelta    = isDelta;
-    this._updateSurface(values, res, isDelta);
-    this._updateHeatmap(values, res, isDelta);
+    this._lastRes  = res;
+    this._isDelta  = isDelta;
+
+    // Apply EMA smoothing to reduce sensor noise
+    if (!this._smoothed || this._smoothed.length !== values.length) {
+      this._smoothed = Float32Array.from(values);
+    } else {
+      for (let i = 0; i < values.length; i++) {
+        this._smoothed[i] = this._alpha * values[i] + (1 - this._alpha) * this._smoothed[i];
+      }
+    }
+    this._lastValues = this._smoothed;
+    this._updateSurface(this._smoothed, res, isDelta);
+    this._updateHeatmap(this._smoothed, res, isDelta);
+  }
+
+  setSmoothing(alpha) {
+    this._alpha = Math.max(0.05, Math.min(1.0, alpha));
   }
 
   setZScale(scale) {
