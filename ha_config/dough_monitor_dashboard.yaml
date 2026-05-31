@@ -3,11 +3,9 @@ views:
   - path: dough-monitor
     title: Dough Monitor
     panel: true
-    type: panel
     cards:
       - type: iframe
-        url: /local/dough_dashboard/dough_dashboard.html
-        aspect_ratio: '100'
+        url: /local/dough_dashboard/dough_dashboard.html?v=1
         card_mod:
           style: |
             iframe {
