@@ -13,19 +13,15 @@ Place the extracted driver C files under components/vl53l5cx/driver/
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import i2c
-from esphome.const import (
-    CONF_ID,
-    CONF_UPDATE_INTERVAL,
-)
+from esphome.components import i2c, time
+from esphome.const import CONF_ID, CONF_TIME_ID
 
 DEPENDENCIES = ["i2c"]
 AUTO_LOAD = ["sensor", "text_sensor", "binary_sensor"]
 MULTI_CONF = False
 
-# Shared constant used by sub-platforms (sensor.py) to reference the parent
 CONF_VL53L5CX_ID = "vl53l5cx_id"
-CONF_RESOLUTION = "resolution"
+CONF_RESOLUTION  = "resolution"
 CONF_RANGING_MODE = "ranging_mode"
 CONF_TARGET_ORDER = "target_order"
 
@@ -40,7 +36,7 @@ RANGING_MODES = {
 }
 
 TARGET_ORDERS = {
-    "closest":  cg.uint8(1),
+    "closest":   cg.uint8(1),
     "strongest": cg.uint8(2),
 }
 
@@ -48,6 +44,7 @@ CONFIG_SCHEMA = (
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(VL53L5CXComponent),
+            cv.Optional(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
             cv.Optional(CONF_RESOLUTION, default=8): cv.one_of(4, 8, int=True),
             cv.Optional(CONF_RANGING_MODE, default="continuous"): cv.enum(
                 RANGING_MODES, lower=True
@@ -70,3 +67,7 @@ async def to_code(config):
     cg.add(var.set_resolution(config[CONF_RESOLUTION]))
     cg.add(var.set_ranging_mode(config[CONF_RANGING_MODE]))
     cg.add(var.set_target_order(config[CONF_TARGET_ORDER]))
+
+    if CONF_TIME_ID in config:
+        time_var = await cg.get_variable(config[CONF_TIME_ID])
+        cg.add(var.set_time(time_var))
