@@ -20,6 +20,7 @@
   <header>
     <h1>&#x1F35E; TimeOfFlightDough</h1>
     <div id="connection-status" class="badge unknown">Loading…</div>
+    <button id="reset-url-btn" title="Change ESPHome device URL">⚙</button>
   </header>
 
   <!-- ESPHome device URL prompt (shown once, saved to localStorage) -->
@@ -206,6 +207,11 @@
       document.getElementById('view-3d-btn').classList.remove('active');
       if (viz) viz.setViewMode('heatmap');
     });
+    document.getElementById('reset-url-btn').addEventListener('click', () => {
+      localStorage.removeItem(ESPHOME_KEY);
+      location.reload();
+    });
+
     document.getElementById('z-scale').addEventListener('input', (e) => {
       const v = parseFloat(e.target.value);
       document.getElementById('z-scale-val').textContent = v + '×';
