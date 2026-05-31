@@ -2,14 +2,13 @@
 # setup_ha.sh — one-time setup of the dashboard on a Home Assistant instance.
 # Run this from the CC Terminal inside HA (or via SSH).
 #
-# After this runs, 'git pull' inside /config/TimeOfFlightDough is all you
-# ever need to do to update the dashboard.
+# After this runs, run update_ha.sh to pull latest changes.
 
 set -e
 
 REPO_DIR="/config/TimeOfFlightDough"
-WWW_LINK="/config/www/dough_dashboard"
-VENDOR_DIR="${REPO_DIR}/dashboard/js/vendor"
+WWW_DIR="/config/www/dough_dashboard"
+VENDOR_DIR="${WWW_DIR}/js/vendor"
 
 # ---- 1. Clone or update the repo ------------------------------------------
 if [ -d "${REPO_DIR}/.git" ]; then
@@ -24,20 +23,11 @@ else
     "${REPO_DIR}"
 fi
 
-# ---- 2. Symlink dashboard into HA www --------------------------------------
-mkdir -p /config/www
-
-if [ -L "${WWW_LINK}" ]; then
-  echo ">>> Symlink already exists — skipping."
-elif [ -d "${WWW_LINK}" ]; then
-  echo ">>> WARNING: ${WWW_LINK} is a real directory (not a symlink)."
-  echo ">>> Backing it up to ${WWW_LINK}.bak and replacing with symlink."
-  mv "${WWW_LINK}" "${WWW_LINK}.bak"
-  ln -s "${REPO_DIR}/dashboard" "${WWW_LINK}"
-else
-  echo ">>> Creating symlink: ${WWW_LINK} -> ${REPO_DIR}/dashboard"
-  ln -s "${REPO_DIR}/dashboard" "${WWW_LINK}"
-fi
+# ---- 2. Copy dashboard files into HA www (NOT a symlink) ------------------
+# aiohttp static server won't serve files outside /config/www/ via symlink.
+echo ">>> Copying dashboard files to ${WWW_DIR}..."
+mkdir -p "${WWW_DIR}"
+cp -r "${REPO_DIR}/dashboard/"* "${WWW_DIR}/"
 
 # ---- 3. Download Three.js vendor files (only if missing) ------------------
 mkdir -p "${VENDOR_DIR}"
@@ -58,12 +48,8 @@ else
   echo ">>> OrbitControls.js already present — skipping."
 fi
 
-# ---- Done -----------------------------------------------------------------
 echo ""
 echo "=== Setup complete ==="
-echo ""
-echo "Dashboard is live at: /local/dough_dashboard/dough_dashboard.html"
-echo ""
-echo "To update in future, just run:"
-echo "  cd ${REPO_DIR} && git pull"
+echo "Dashboard: /local/dough_dashboard/dough_dashboard.html"
+echo "To update: run update_ha.sh"
 echo ""
