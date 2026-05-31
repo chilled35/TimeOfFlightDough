@@ -1,27 +1,14 @@
-"""
-VL53L5CX ESPHome custom component.
-
-Wraps the STMicroelectronics Ultra Lite Driver (ULD) for the VL53L5CX
-8x8 Time-of-Flight sensor. Publishes zone distance data as JSON via a
-text sensor, exposes per-zone numeric sensors, and manages baseline
-calibration stored in ESP32 NVS (ESPHome Preferences).
-
-ST ULD download: https://www.st.com/en/embedded-software/stsw-img023.html
-Place the extracted driver C files under components/vl53l5cx/driver/
-(see driver/DRIVER_README.md for the exact file list required).
-"""
-
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import i2c, time
 from esphome.const import CONF_ID, CONF_TIME_ID
 
-DEPENDENCIES = ["i2c"]
+DEPENDENCIES = ["i2c", "json"]
 AUTO_LOAD = ["sensor", "text_sensor", "binary_sensor"]
 MULTI_CONF = False
 
-CONF_VL53L5CX_ID = "vl53l5cx_id"
-CONF_RESOLUTION  = "resolution"
+CONF_VL53L5CX_ID  = "vl53l5cx_id"
+CONF_RESOLUTION   = "resolution"
 CONF_RANGING_MODE = "ranging_mode"
 CONF_TARGET_ORDER = "target_order"
 

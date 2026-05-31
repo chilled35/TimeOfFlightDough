@@ -1,9 +1,5 @@
 /*
  * VL53L5CX Platform Abstraction Layer — ESPHome / ESP32 implementation.
- *
- * Bridges the ST ULD C API to ESPHome's i2c::I2CDevice.
- * platform.h lives alongside this file in the component root — the ST driver
- * files (vl53l5cx_api.c etc.) must also be placed here, NOT in driver/.
  */
 
 #include "platform.h"
@@ -79,6 +75,6 @@ void VL53L5CX_SwapBuffer(uint8_t *buffer, uint16_t size) {
 
 uint8_t VL53L5CX_WaitMs(VL53L5CX_Platform *p, uint32_t ms) {
   (void)p;
-  delay(ms);
+  esphome::delay(ms);
   return 0;
 }
