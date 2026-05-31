@@ -1,0 +1,145 @@
+# TimeOfFlightDough — Home Assistant Package
+#
+# Add to configuration.yaml:
+#   homeassistant:
+#     packages:
+#       dough_monitor: !include packages/dough_monitor.yaml
+#
+# Then restart HA.
+
+# ---------------------------------------------------------------------------
+# Input helpers
+# ---------------------------------------------------------------------------
+input_text:
+  dough_monitor_notes:
+    name: "Dough Session Notes"
+    icon: mdi:notebook-outline
+    max: 255
+
+input_datetime:
+  dough_start_time:
+    name: "Dough Start Time"
+    has_date: true
+    has_time: true
+    icon: mdi:clock-start
+
+# ---------------------------------------------------------------------------
+# Template sensors derived from the ESP32 grid_data entity
+# Adjust entity IDs if your ESPHome device_name differs from 'dough-monitor'.
+# ---------------------------------------------------------------------------
+template:
+  - sensor:
+      - name: "Dough Centre Distance"
+        unique_id: dough_centre_distance
+        unit_of_measurement: mm
+        state_class: measurement
+        icon: mdi:ruler
+        state: >
+          {% set raw = states('sensor.dough_monitor_grid_data') %}
+          {% if raw not in ('unavailable', 'unknown', '') %}
+            {% set d = raw | from_json %}
+            {{ d.distances_mm[27] | default(0) }}
+          {% else %}
+            unknown
+          {% endif %}
+
+      - name: "Dough Max Rise"
+        unique_id: dough_max_rise
+        unit_of_measurement: mm
+        state_class: measurement
+        icon: mdi:arrow-expand-vertical
+        state: >
+          {% set raw = states('sensor.dough_monitor_grid_data') %}
+          {% if raw not in ('unavailable', 'unknown', '') %}
+            {% set d = raw | from_json %}
+            {% if d.cal_valid %}
+              {{ d.delta_mm | max }}
+            {% else %}
+              unknown
+            {% endif %}
+          {% else %}
+            unknown
+          {% endif %}
+
+      - name: "Dough Calibration Status"
+        unique_id: dough_cal_status
+        icon: mdi:check-circle-outline
+        state: >
+          {% set raw = states('sensor.dough_monitor_grid_data') %}
+          {% if raw not in ('unavailable', 'unknown', '') %}
+            {% set d = raw | from_json %}
+            {{ 'calibrated' if d.cal_valid else 'uncalibrated' }}
+          {% else %}
+            unknown
+          {% endif %}
+
+      - name: "Dough Proof Duration"
+        unique_id: dough_proof_duration
+        unit_of_measurement: min
+        icon: mdi:timer-outline
+        state: >
+          {% set start = states('input_datetime.dough_start_time') %}
+          {% if start not in ('unavailable', 'unknown', '') %}
+            {{ ((now() - strptime(start, '%Y-%m-%d %H:%M:%S')).total_seconds() / 60) | round(1) }}
+          {% else %}
+            unknown
+          {% endif %}
+
+# ---------------------------------------------------------------------------
+# History graph (shows up in the HA Energy / History dashboards)
+# ---------------------------------------------------------------------------
+history_graph:
+  dough_rise_history:
+    name: "Dough Rise History"
+    entities:
+      - sensor.dough_max_rise
+      - sensor.dough_centre_distance
+    hours_to_show: 24
+    refresh: 30
+
+# ---------------------------------------------------------------------------
+# Automations
+# ---------------------------------------------------------------------------
+automation:
+  - id: dough_monitor_offline_alert
+    alias: "Dough Monitor — Device Offline Alert"
+    description: "Notify when the ESP32 dough monitor goes offline"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.dough_monitor_device_online
+        to: "off"
+        for:
+          minutes: 2
+    action:
+      - service: persistent_notification.create
+        data:
+          title: "Dough Monitor Offline"
+          message: >-
+            The VL53L5CX dough monitor has been offline for 2+ minutes.
+            Check WiFi and power supply.
+          notification_id: dough_monitor_offline
+
+  - id: dough_monitor_back_online
+    alias: "Dough Monitor — Back Online"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.dough_monitor_device_online
+        to: "on"
+    action:
+      - service: persistent_notification.dismiss
+        data:
+          notification_id: dough_monitor_offline
+
+# ---------------------------------------------------------------------------
+# Dashboard panel (iframe pointing to the local HTML file)
+# Add to your Lovelace dashboard or configuration.yaml panel_iframe section:
+#
+# panel_iframe:
+#   dough_monitor:
+#     title: "Dough Monitor"
+#     icon: mdi:grain
+#     url: "/local/dough_dashboard/dough_dashboard.html"
+#
+# Then copy the dashboard/ folder to:
+#   <ha_config>/www/dough_dashboard/
+# ---------------------------------------------------------------------------
