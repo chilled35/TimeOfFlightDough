@@ -2,24 +2,25 @@
  * VL53L5CX Platform Abstraction Layer — ESPHome / ESP32 implementation.
  *
  * Bridges the ST ULD C API to ESPHome's i2c::I2CDevice.
- * The ST driver calls these functions for every register read/write.
+ * platform.h lives alongside this file in the component root — the ST driver
+ * files (vl53l5cx_api.c etc.) must also be placed here, NOT in driver/.
  */
 
-#include "driver/platform.h"
+#include "platform.h"
 #include "esphome/components/i2c/i2c.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
+
+#include <vector>
 
 using namespace esphome::i2c;
 
 static const char *const TAG_PAL = "vl53l5cx_pal";
 
-/* Convenience: recover the ESPHome I2CDevice from the opaque handle */
 static inline I2CDevice *dev(VL53L5CX_Platform *p) {
   return reinterpret_cast<I2CDevice *>(p->i2c_handle);
 }
 
-/* The VL53L5CX uses 16-bit register addresses, MSB first */
 static void write_reg_addr(uint8_t *buf, uint16_t reg) {
   buf[0] = static_cast<uint8_t>(reg >> 8);
   buf[1] = static_cast<uint8_t>(reg & 0xFF);
@@ -43,20 +44,14 @@ uint8_t VL53L5CX_RdByte(VL53L5CX_Platform *p, uint16_t reg, uint8_t *value) {
 }
 
 uint8_t VL53L5CX_WrMulti(VL53L5CX_Platform *p, uint16_t reg, uint8_t *data, uint32_t size) {
-  /* Write address header then data in a single transaction */
   uint8_t addr[2];
   write_reg_addr(addr, reg);
-
-  /* ESPHome I2CDevice::write_register handles 8-bit reg addresses;
-   * for 16-bit we build the payload manually and use raw write(). */
-  auto *d = dev(p);
-  /* start → addr[0..1] → data[0..size-1] → stop */
   std::vector<uint8_t> buf;
   buf.reserve(2 + size);
   buf.push_back(addr[0]);
   buf.push_back(addr[1]);
   buf.insert(buf.end(), data, data + size);
-  auto err = d->write(buf.data(), buf.size());
+  auto err = dev(p)->write(buf.data(), buf.size());
   return (err == ErrorCode::NO_ERROR) ? 0 : 1;
 }
 
@@ -70,14 +65,11 @@ uint8_t VL53L5CX_RdMulti(VL53L5CX_Platform *p, uint16_t reg, uint8_t *data, uint
 }
 
 uint8_t VL53L5CX_Reset_Sensor(VL53L5CX_Platform *p) {
-  /* No dedicated reset pin on most breakout boards.
-   * A soft-reset can be issued via register if required. */
   (void)p;
   return 0;
 }
 
 void VL53L5CX_SwapBuffer(uint8_t *buffer, uint16_t size) {
-  /* Swap bytes of each uint32 in the buffer (ST driver endian conversion) */
   for (uint16_t i = 0; i < size; i += 4) {
     uint8_t tmp;
     tmp = buffer[i];     buffer[i]     = buffer[i + 3]; buffer[i + 3] = tmp;

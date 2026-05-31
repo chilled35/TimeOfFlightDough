@@ -8,8 +8,10 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/time/real_time_clock.h"
 
+// ST ULD driver — place all driver files in the same directory as this file
+// (esphome/components/vl53l5cx/). See driver/DRIVER_README.md for the file list.
 extern "C" {
-#include "driver/vl53l5cx_api.h"
+#include "vl53l5cx_api.h"
 }
 
 #include <array>
@@ -39,21 +41,21 @@ class VL53L5CXComponent : public PollingComponent, public i2c::I2CDevice {
   float get_setup_priority() const override { return setup_priority::DATA; }
   void dump_config() override;
 
-  void set_resolution(uint8_t res)    { resolution_    = res; }
-  void set_ranging_mode(uint8_t mode) { ranging_mode_  = mode; }
-  void set_target_order(uint8_t order){ target_order_  = order; }
-  void set_time(time::RealTimeClock *t){ time_          = t; }
+  void set_resolution(uint8_t res)     { resolution_   = res; }
+  void set_ranging_mode(uint8_t mode)  { ranging_mode_ = mode; }
+  void set_target_order(uint8_t order) { target_order_ = order; }
+  void set_time(time::RealTimeClock *t){ time_         = t; }
 
-  void set_averaging_window(uint8_t frames) { avg_window_ = frames; }
+  void set_averaging_window(uint8_t frames) { avg_window_    = frames; }
   void set_operating_mode(bool averaged)    { averaged_mode_ = averaged; }
 
   void capture_baseline();
   void clear_baseline();
   bool is_calibrated() const { return cal_data_.valid; }
 
-  void register_zone_sensor(VL53L5CXZoneSensor *s) { zone_sensors_.push_back(s); }
+  void register_zone_sensor(VL53L5CXZoneSensor *s)    { zone_sensors_.push_back(s); }
   void set_grid_text_sensor(VL53L5CXGridTextSensor *s) { grid_sensor_ = s; }
-  void set_cal_binary_sensor(VL53L5CXCalBinarySensor *s) { cal_sensor_ = s; }
+  void set_cal_binary_sensor(VL53L5CXCalBinarySensor *s){ cal_sensor_ = s; }
 
   uint16_t get_distance_mm(uint8_t row, uint8_t col) const;
   int16_t  get_delta_mm(uint8_t row, uint8_t col) const;
@@ -93,7 +95,7 @@ class VL53L5CXComponent : public PollingComponent, public i2c::I2CDevice {
   uint32_t cal_acc_[NUM_ZONES_MAX]{};
   uint8_t  cal_frames_captured_{0};
 
-  CalibrationData cal_data_{};
+  CalibrationData     cal_data_{};
   ESPPreferenceObject pref_;
 
   std::vector<VL53L5CXZoneSensor *> zone_sensors_;
