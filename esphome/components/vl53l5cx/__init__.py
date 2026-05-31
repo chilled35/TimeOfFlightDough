@@ -3,7 +3,7 @@ import esphome.config_validation as cv
 from esphome.components import i2c, time
 from esphome.const import CONF_ID, CONF_TIME_ID
 
-DEPENDENCIES = ["i2c", "json"]
+DEPENDENCIES = ["i2c"]
 AUTO_LOAD = ["sensor", "text_sensor", "binary_sensor"]
 MULTI_CONF = False
 
