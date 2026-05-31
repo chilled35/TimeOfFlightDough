@@ -6,12 +6,13 @@ namespace esphome {
 namespace vl53l5cx {
 
 static const char *const TAG = "vl53l5cx";
+static const uint32_t PREF_HASH = 0xD0D0CA1Bu;
 
 void VL53L5CXComponent::setup() {
   ESP_LOGCONFIG(TAG, "Setting up VL53L5CX...");
   load_calibration_();
   if (!init_sensor_()) {
-    ESP_LOGE(TAG, "Sensor init failed — check wiring and I²C address (expected 0x29)");
+    ESP_LOGE(TAG, "Sensor init failed - check wiring and I2C address (expected 0x29)");
     mark_failed();
     return;
   }
@@ -55,8 +56,10 @@ void VL53L5CXComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "VL53L5CX:");
   LOG_I2C_DEVICE(this);
   ESP_LOGCONFIG(TAG, "  Resolution : %dx%d", resolution_, resolution_);
-  ESP_LOGCONFIG(TAG, "  Ranging    : %s", ranging_mode_ == VL53L5CX_RANGING_MODE_CONTINUOUS ? "continuous" : "autonomous");
-  ESP_LOGCONFIG(TAG, "  Target     : %s", target_order_ == VL53L5CX_TARGET_ORDER_CLOSEST ? "closest" : "strongest");
+  ESP_LOGCONFIG(TAG, "  Ranging    : %s",
+                ranging_mode_ == VL53L5CX_RANGING_MODE_CONTINUOUS ? "continuous" : "autonomous");
+  ESP_LOGCONFIG(TAG, "  Target     : %s",
+                target_order_ == VL53L5CX_TARGET_ORDER_CLOSEST ? "closest" : "strongest");
   ESP_LOGCONFIG(TAG, "  Avg window : %d frames", avg_window_);
   ESP_LOGCONFIG(TAG, "  Calibrated : %s", cal_data_.valid ? "yes" : "no");
 }
@@ -66,23 +69,41 @@ bool VL53L5CXComponent::init_sensor_() {
   dev_.platform.i2c_handle = this;
 
   uint8_t status = vl53l5cx_init(&dev_);
-  if (status != VL53L5CX_STATUS_OK) { ESP_LOGE(TAG, "vl53l5cx_init failed (%u)", status); return false; }
+  if (status != VL53L5CX_STATUS_OK) {
+    ESP_LOGE(TAG, "vl53l5cx_init failed (%u)", status);
+    return false;
+  }
 
   uint8_t res_const = (resolution_ == 8) ? VL53L5CX_RESOLUTION_8X8 : VL53L5CX_RESOLUTION_4X4;
   status = vl53l5cx_set_resolution(&dev_, res_const);
-  if (status != VL53L5CX_STATUS_OK) { ESP_LOGE(TAG, "set_resolution failed (%u)", status); return false; }
+  if (status != VL53L5CX_STATUS_OK) {
+    ESP_LOGE(TAG, "set_resolution failed (%u)", status);
+    return false;
+  }
 
   status = vl53l5cx_set_ranging_mode(&dev_, ranging_mode_);
-  if (status != VL53L5CX_STATUS_OK) { ESP_LOGE(TAG, "set_ranging_mode failed (%u)", status); return false; }
+  if (status != VL53L5CX_STATUS_OK) {
+    ESP_LOGE(TAG, "set_ranging_mode failed (%u)", status);
+    return false;
+  }
 
   status = vl53l5cx_set_target_order(&dev_, target_order_);
-  if (status != VL53L5CX_STATUS_OK) { ESP_LOGE(TAG, "set_target_order failed (%u)", status); return false; }
+  if (status != VL53L5CX_STATUS_OK) {
+    ESP_LOGE(TAG, "set_target_order failed (%u)", status);
+    return false;
+  }
 
   status = vl53l5cx_set_ranging_frequency_hz(&dev_, 10);
-  if (status != VL53L5CX_STATUS_OK) { ESP_LOGE(TAG, "set_ranging_frequency_hz failed (%u)", status); return false; }
+  if (status != VL53L5CX_STATUS_OK) {
+    ESP_LOGE(TAG, "set_ranging_frequency_hz failed (%u)", status);
+    return false;
+  }
 
   status = vl53l5cx_start_ranging(&dev_);
-  if (status != VL53L5CX_STATUS_OK) { ESP_LOGE(TAG, "start_ranging failed (%u)", status); return false; }
+  if (status != VL53L5CX_STATUS_OK) {
+    ESP_LOGE(TAG, "start_ranging failed (%u)", status);
+    return false;
+  }
 
   return true;
 }
@@ -93,7 +114,10 @@ bool VL53L5CXComponent::read_frame_() {
   if (!is_ready) return false;
 
   uint8_t status = vl53l5cx_get_ranging_data(&dev_, &results_);
-  if (status != VL53L5CX_STATUS_OK) { ESP_LOGW(TAG, "get_ranging_data failed (%u)", status); return false; }
+  if (status != VL53L5CX_STATUS_OK) {
+    ESP_LOGW(TAG, "get_ranging_data failed (%u)", status);
+    return false;
+  }
 
   uint8_t n = resolution_ * resolution_;
   for (uint8_t i = 0; i < n; i++) {
@@ -129,6 +153,8 @@ std::string VL53L5CXComponent::build_json_() const {
 
   std::string out;
   out.reserve(768);
+
+  // {"ts":<n>,"res":<n>,"mode":"<s>"
   out += "{\"ts\":";
   out += std::to_string(ts);
   out += ",\"res\":";
@@ -137,10 +163,14 @@ std::string VL53L5CXComponent::build_json_() const {
   out += averaged_mode_ ? "averaged" : "live";
   out += '"';
 
+  // append ,"<key>":[v0,v1,...,vN]
   auto append_array = [&](const char *key, auto *arr) {
-    out += ",\"";
+    out += ',';
+    out += '"';
     out += key;
-    out += \"\\":[\"";
+    out += '"';
+    out += ':';
+    out += '[';
     for (uint8_t i = 0; i < n; i++) {
       if (i) out += ',';
       out += std::to_string(arr[i]);
@@ -194,14 +224,12 @@ void VL53L5CXComponent::clear_baseline() {
 }
 
 void VL53L5CXComponent::save_calibration_() {
-  pref_ = global_preferences->make_preference<CalibrationData>(
-      this->get_object_id_hash() ^ 0xCAL1B00U);
+  pref_ = global_preferences->make_preference<CalibrationData>(PREF_HASH);
   pref_.save(&cal_data_);
 }
 
 void VL53L5CXComponent::load_calibration_() {
-  pref_ = global_preferences->make_preference<CalibrationData>(
-      this->get_object_id_hash() ^ 0xCAL1B00U);
+  pref_ = global_preferences->make_preference<CalibrationData>(PREF_HASH);
   if (!pref_.load(&cal_data_)) {
     cal_data_.valid = false;
     ESP_LOGD(TAG, "No saved calibration found");
