@@ -97,6 +97,14 @@ bool VL53L5CXComponent::init_sensor_() {
              dev_id, rev_id);
   }
 
+  // Confirm is_alive result independently so we know whether the revision
+  // patch is taking effect before the full 6-second init attempt.
+  {
+    uint8_t is_alive = 0;
+    uint8_t alive_status = vl53l5cx_is_alive(&dev_, &is_alive);
+    ESP_LOGD(TAG, "vl53l5cx_is_alive: status=%u is_alive=%u", alive_status, is_alive);
+  }
+
   uint8_t status = vl53l5cx_init(&dev_);
   if (status != VL53L5CX_STATUS_OK) {
     ESP_LOGE(TAG, "vl53l5cx_init failed (%u)", status);
