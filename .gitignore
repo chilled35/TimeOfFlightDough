@@ -5,6 +5,9 @@ esphome/secrets.yaml
 esphome/.esphome/
 esphome/build/
 
+# Three.js vendor files — downloaded by setup_ha.sh, not committed
+dashboard/js/vendor/
+
 # OS
 .DS_Store
 Thumbs.db
