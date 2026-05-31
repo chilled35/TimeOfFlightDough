@@ -6,11 +6,10 @@
   <title>TimeOfFlightDough — Dough Monitor</title>
   <link rel="stylesheet" href="css/dashboard.css">
 
-  <!-- Tell the browser where to resolve bare module specifiers -->
   <script type="importmap">
   {
     "imports": {
-      "three":                              "./js/vendor/three.module.js",
+      "three":                                  "./js/vendor/three.module.js",
       "three/addons/controls/OrbitControls.js": "./js/vendor/OrbitControls.js"
     }
   }
@@ -20,11 +19,11 @@
 
   <header>
     <h1>&#x1F35E; TimeOfFlightDough</h1>
-    <div id="connection-status" class="badge disconnected">Disconnected</div>
+    <div id="connection-status" class="badge connecting">Connecting…</div>
   </header>
 
-  <!-- Connection panel (hidden once connected) -->
-  <div id="connect-panel">
+  <!-- Fallback manual connection panel (shown only when not inside HA iframe) -->
+  <div id="connect-panel" class="hidden">
     <label>Home Assistant URL
       <input type="text" id="ha-url" placeholder="http://homeassistant.local:8123" />
     </label>
@@ -38,14 +37,14 @@
     <p class="hint">Token: HA → Profile → Long-Lived Access Tokens</p>
   </div>
 
-  <!-- Main dashboard (shown once connected) -->
+  <!-- Main dashboard -->
   <main id="dashboard" class="hidden">
 
     <section id="controls">
       <div class="control-group">
         <span class="label">Mode</span>
-        <button id="mode-btn" class="active" data-mode="delta">Delta (Rise)</button>
-        <button id="mode-raw-btn" data-mode="raw">Raw Distance</button>
+        <button id="mode-btn" class="active">Delta (Rise)</button>
+        <button id="mode-raw-btn">Raw Distance</button>
       </div>
       <div class="control-group">
         <span class="label">View</span>
@@ -78,72 +77,145 @@
   </main>
 
   <script type="module">
-    import { HAWebSocket }    from './js/ha_websocket.js';
     import { DoughVisualizer } from './js/visualizer.js';
 
-    const connectBtn   = document.getElementById('connect-btn');
+    const ENTITY_ID = 'sensor.dough_monitor_grid_data';
+
+    const statusBadge  = document.getElementById('connection-status');
     const connectPanel = document.getElementById('connect-panel');
     const dashboard    = document.getElementById('dashboard');
-    const statusBadge  = document.getElementById('connection-status');
     const calBadge     = document.getElementById('cal-badge');
 
-    let ws          = null;
     let viz         = null;
-    let displayMode = 'delta'; // 'delta' | 'raw'
-    let viewMode    = '3d';    // '3d' | 'heatmap'
+    let displayMode = 'delta';
+    let viewMode    = '3d';
 
-    // Persist connection details across reloads
-    ['ha-url', 'ha-token', 'ha-entity'].forEach(id => {
-      const el    = document.getElementById(id);
-      const saved = localStorage.getItem('tof_' + id);
-      if (saved) el.value = saved;
-      el.addEventListener('input', () => localStorage.setItem('tof_' + id, el.value));
-    });
+    // ------------------------------------------------------------------
+    // Connection — try parent HA WebSocket first, fall back to manual
+    // ------------------------------------------------------------------
 
-    connectBtn.addEventListener('click', () => {
-      const url    = document.getElementById('ha-url').value.trim();
-      const token  = document.getElementById('ha-token').value.trim();
-      const entity = document.getElementById('ha-entity').value.trim();
-
-      if (!url || !token || !entity) {
-        alert('Please fill in all connection fields.');
-        return;
+    async function tryAutoConnect() {
+      try {
+        // HA exposes hassConnection on the parent window (same-origin iframe)
+        const { conn } = await window.parent.hassConnection;
+        onConnected(conn);
+      } catch (e) {
+        console.info('Not inside HA iframe, showing manual connect panel.', e);
+        showManualPanel();
       }
+    }
 
-      statusBadge.textContent = 'Connecting…';
-      statusBadge.className   = 'badge connecting';
+    function onConnected(conn) {
+      statusBadge.textContent = 'Connected';
+      statusBadge.className   = 'badge connected';
+      connectPanel.classList.add('hidden');
+      dashboard.classList.remove('hidden');
 
-      ws = new HAWebSocket(url, token);
-
-      ws.onConnect = () => {
-        statusBadge.textContent = 'Connected';
-        statusBadge.className   = 'badge connected';
-        connectPanel.classList.add('hidden');
-        dashboard.classList.remove('hidden');
-
-        // Initialise the visualizer after the canvas is visible
+      requestAnimationFrame(() => {
         viz = new DoughVisualizer(
           document.getElementById('threejs-canvas'),
           document.getElementById('heatmap-canvas')
         );
         viz.setZScale(parseFloat(document.getElementById('z-scale').value));
+      });
 
-        ws.subscribeState(entity, onGridData);
+      // Fetch current state immediately
+      conn.sendMessagePromise({ type: 'get_states' }).then(states => {
+        const entity = states.find(e => e.entity_id === ENTITY_ID);
+        if (entity) onGridData(entity.state);
+      }).catch(e => console.warn('get_states failed:', e));
+
+      // Subscribe to future changes
+      conn.subscribeEvents((event) => {
+        if (event.data.entity_id === ENTITY_ID) {
+          onGridData(event.data.new_state?.state);
+        }
+      }, 'state_changed');
+    }
+
+    function showManualPanel() {
+      statusBadge.textContent = 'Disconnected';
+      statusBadge.className   = 'badge disconnected';
+      connectPanel.classList.remove('hidden');
+
+      // Restore saved values
+      ['ha-url', 'ha-token', 'ha-entity'].forEach(id => {
+        const el = document.getElementById(id);
+        const saved = localStorage.getItem('tof_' + id);
+        if (saved) el.value = saved;
+        el.addEventListener('input', () => localStorage.setItem('tof_' + id, el.value));
+      });
+
+      document.getElementById('connect-btn').addEventListener('click', () => {
+        const url    = document.getElementById('ha-url').value.trim();
+        const token  = document.getElementById('ha-token').value.trim();
+        const entity = document.getElementById('ha-entity').value.trim();
+        if (!url || !token) { alert('Please fill in all fields.'); return; }
+        manualConnect(url, token, entity || ENTITY_ID);
+      });
+    }
+
+    function manualConnect(haUrl, token, entityId) {
+      statusBadge.textContent = 'Connecting…';
+      statusBadge.className   = 'badge connecting';
+
+      const wsUrl = haUrl.replace(/^http/, 'ws') + '/api/websocket';
+      const socket = new WebSocket(wsUrl);
+      let msgId = 1;
+
+      socket.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'auth_required') {
+          socket.send(JSON.stringify({ type: 'auth', access_token: token }));
+        } else if (msg.type === 'auth_ok') {
+          // Build a minimal conn-like object for onConnected
+          const conn = {
+            sendMessagePromise: (m) => new Promise((resolve, reject) => {
+              const id = msgId++;
+              m.id = id;
+              _pending.set(id, { resolve, reject });
+              socket.send(JSON.stringify(m));
+            }),
+            subscribeEvents: (cb, eventType) => {
+              const id = msgId++;
+              _eventHandlers.set(id, cb);
+              socket.send(JSON.stringify({ id, type: 'subscribe_events', event_type: eventType }));
+            },
+          };
+          const _pending = new Map();
+          const _eventHandlers = new Map();
+          socket.addEventListener('message', (ev) => {
+            const m = JSON.parse(ev.data);
+            if (m.type === 'result') {
+              const p = _pending.get(m.id);
+              if (p) { _pending.delete(m.id); m.success ? p.resolve(m.result) : p.reject(m.error); }
+            } else if (m.type === 'event') {
+              _eventHandlers.forEach(h => h(m.event));
+            }
+          });
+          onConnected(conn);
+        } else if (msg.type === 'auth_invalid') {
+          statusBadge.textContent = 'Auth failed';
+          statusBadge.className   = 'badge error';
+        }
       };
-
-      ws.onDisconnect = () => {
-        statusBadge.textContent = 'Disconnected';
-        statusBadge.className   = 'badge disconnected';
-      };
-
-      ws.onError = (err) => {
+      socket.onerror = () => {
         statusBadge.textContent = 'Error';
         statusBadge.className   = 'badge error';
-        console.error('HA WebSocket error:', err);
       };
+      socket.onclose = () => {
+        if (statusBadge.className.includes('connected')) {
+          statusBadge.textContent = 'Disconnected';
+          statusBadge.className   = 'badge disconnected';
+        }
+      };
+    }
 
-      ws.connect();
-    });
+    tryAutoConnect();
+
+    // ------------------------------------------------------------------
+    // Grid data handler
+    // ------------------------------------------------------------------
 
     function onGridData(state) {
       if (!state || state === 'unavailable' || state === 'unknown') return;
@@ -156,20 +228,22 @@
 
       const res    = data.res || 8;
       const centre = Math.floor(res / 2) * res + Math.floor(res / 2);
-      document.getElementById('stat-centre').textContent    = data.distances_mm[centre] ?? '--';
+      document.getElementById('stat-centre').textContent    = data.distances_mm?.[centre] ?? '--';
       document.getElementById('stat-max-delta').textContent = data.delta_mm ? Math.max(...data.delta_mm) : 0;
       document.getElementById('stat-ts').textContent        = data.ts ? new Date(data.ts * 1000).toLocaleTimeString() : '--';
       document.getElementById('stat-mode').textContent      = data.mode || '--';
 
       if (viz) {
         const values = displayMode === 'delta' && data.cal_valid
-          ? data.delta_mm
-          : data.distances_mm;
+          ? data.delta_mm : data.distances_mm;
         viz.update(values, res, displayMode === 'delta');
       }
     }
 
+    // ------------------------------------------------------------------
     // Control wire-up
+    // ------------------------------------------------------------------
+
     document.getElementById('mode-btn').addEventListener('click', () => {
       displayMode = 'delta';
       document.getElementById('mode-btn').classList.add('active');
@@ -180,9 +254,7 @@
       document.getElementById('mode-raw-btn').classList.add('active');
       document.getElementById('mode-btn').classList.remove('active');
     });
-
     document.getElementById('view-3d-btn').addEventListener('click', () => {
-      viewMode = '3d';
       document.getElementById('threejs-canvas').classList.remove('hidden');
       document.getElementById('heatmap-canvas').classList.add('hidden');
       document.getElementById('view-3d-btn').classList.add('active');
@@ -190,14 +262,12 @@
       if (viz) viz.setViewMode('3d');
     });
     document.getElementById('view-heatmap-btn').addEventListener('click', () => {
-      viewMode = 'heatmap';
       document.getElementById('heatmap-canvas').classList.remove('hidden');
       document.getElementById('threejs-canvas').classList.add('hidden');
       document.getElementById('view-heatmap-btn').classList.add('active');
       document.getElementById('view-3d-btn').classList.remove('active');
       if (viz) viz.setViewMode('heatmap');
     });
-
     document.getElementById('z-scale').addEventListener('input', (e) => {
       const v = parseFloat(e.target.value);
       document.getElementById('z-scale-val').textContent = v + '×';
