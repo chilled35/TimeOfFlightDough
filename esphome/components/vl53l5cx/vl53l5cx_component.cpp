@@ -65,8 +65,12 @@ void VL53L5CXComponent::dump_config() {
 }
 
 bool VL53L5CXComponent::init_sensor_() {
-  dev_.platform.address    = static_cast<uint16_t>(get_i2c_address() << 1);
-  dev_.platform.i2c_handle = this;
+  dev_.platform.address = static_cast<uint16_t>(get_i2c_address() << 1);
+
+  // VL53L5CXComponent inherits from both PollingComponent and i2c::I2CDevice.
+  // 'this' as void* carries the base object address, not the I2CDevice sub-object
+  // address. Explicit upcast ensures the PAL gets the correct vtable pointer.
+  dev_.platform.i2c_handle = static_cast<i2c::I2CDevice *>(this);
 
   uint8_t status = vl53l5cx_init(&dev_);
   if (status != VL53L5CX_STATUS_OK) {
@@ -154,7 +158,6 @@ std::string VL53L5CXComponent::build_json_() const {
   std::string out;
   out.reserve(768);
 
-  // {"ts":<n>,"res":<n>,"mode":"<s>"
   out += "{\"ts\":";
   out += std::to_string(ts);
   out += ",\"res\":";
@@ -163,7 +166,6 @@ std::string VL53L5CXComponent::build_json_() const {
   out += averaged_mode_ ? "averaged" : "live";
   out += '"';
 
-  // append ,"<key>":[v0,v1,...,vN]
   auto append_array = [&](const char *key, auto *arr) {
     out += ',';
     out += '"';
