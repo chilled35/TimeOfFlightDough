@@ -6,6 +6,7 @@
 #include "esphome/components/i2c/i2c.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
+#include "esp_task_wdt.h"
 
 #include <vector>
 
@@ -48,6 +49,8 @@ uint8_t VL53L5CX_WrMulti(VL53L5CX_Platform *p, uint16_t reg, uint8_t *data, uint
   buf.push_back(addr[1]);
   buf.insert(buf.end(), data, data + size);
   auto err = dev(p)->write(buf.data(), buf.size());
+  // Firmware upload sends many large blocks; reset WDT so 5s timer doesn't fire.
+  esp_task_wdt_reset();
   return (err == ErrorCode::NO_ERROR) ? 0 : 1;
 }
 

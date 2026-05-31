@@ -65,6 +65,16 @@ void VL53L5CXComponent::dump_config() {
 }
 
 bool VL53L5CXComponent::init_sensor_() {
+  // Fast probe before handing off to the ST driver, which would otherwise
+  // attempt an 84 KB firmware upload over I2C and trigger the WDT (~5 s)
+  // even when no sensor is physically connected.
+  // Write the 2-byte address of the device-ID register; a NACK means no sensor.
+  uint8_t probe_addr[2] = {0x7F, 0xFF};
+  if (this->write(probe_addr, 2) != i2c::ERROR_OK) {
+    ESP_LOGE(TAG, "VL53L5CX not found on I2C bus — check wiring (address 0x%02X)", get_i2c_address());
+    return false;
+  }
+
   dev_.platform.address = static_cast<uint16_t>(get_i2c_address() << 1);
 
   // VL53L5CXComponent inherits from both PollingComponent and i2c::I2CDevice.
