@@ -1,7 +1,6 @@
 #include "vl53l5cx_component.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
-#include "esphome/components/json/json_util.h"
 
 namespace esphome {
 namespace vl53l5cx {
@@ -120,9 +119,6 @@ void VL53L5CXComponent::publish_all_() {
 }
 
 std::string VL53L5CXComponent::build_json_() const {
-  // Build JSON manually to avoid ArduinoJson include path issues in custom components.
-  // Format: {"ts":0,"res":8,"mode":"live","distances_mm":[...],"signal_kcps":[...],
-  //          "nb_targets":[...],"delta_mm":[...],"cal_valid":true}
   uint8_t n = resolution_ * resolution_;
 
   int64_t ts = 0;
@@ -132,14 +128,14 @@ std::string VL53L5CXComponent::build_json_() const {
   }
 
   std::string out;
-  out.reserve(512);
+  out.reserve(768);
   out += "{\"ts\":";
   out += std::to_string(ts);
   out += ",\"res\":";
   out += std::to_string(resolution_);
   out += ",\"mode\":\"";
   out += averaged_mode_ ? "averaged" : "live";
-  out += "\"";
+  out += '"';
 
   auto append_array = [&](const char *key, auto *arr) {
     out += ",\"";
