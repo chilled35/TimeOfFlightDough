@@ -1,6 +1,6 @@
 # TimeOfFlightDough
 
-An ESP32-S3-based dough proofing monitor using the STMicroelectronics **VL53L5CX** 8×8 Time-of-Flight sensor, integrated with **Home Assistant** via **ESPHome**. A real-time 3D height-map dashboard tracks dough-ball rise inside a converted fridge.
+An ESP32-S3-based dough proofing monitor using the STMicroelectronics **VL53L5CX** 8×8 Time-of-Flight sensor, integrated with **Home Assistant** via **ESPHome**. A real-time 3D height-map dashboard tracks dough-ball rise inside the **[Digital Dough Box](https://github.com/chilled35/DoughBox)** — a purpose-built, fridge-based dough fermentation and proofing chamber.
 
 ---
 
@@ -10,8 +10,9 @@ An ESP32-S3-based dough proofing monitor using the STMicroelectronics **VL53L5CX
 |---|---|---|
 | Microcontroller | Seeed XIAO ESP32-S3 | 8 MB flash, 8 MB PSRAM |
 | ToF sensor | STMicro VL53L5CX breakout | 8×8 zones, 45° FoV, up to 4 m |
-| Fridge environment | BME280 ×2 | Already in Home Assistant as "Digital Dough Box" |
-| Power | USB-C to XIAO | Or 3.3 V rail from fridge mod |
+| Enclosure | [Digital Dough Box](https://github.com/chilled35/DoughBox) | Modified fridge with integrated climate control |
+| Fridge environment | BME280 ×2 | Already in Home Assistant via the Digital Dough Box project |
+| Power | USB-C to XIAO | Or 3.3 V rail from Digital Dough Box internals |
 
 ### Wiring (XIAO ESP32-S3 → VL53L5CX)
 
@@ -22,7 +23,7 @@ XIAO 3V3         ──── VDD / IOVDD
 XIAO GND         ──── GND
 ```
 
-Sensor is mounted on the top internal face of the fridge, pointing **straight down** toward the dough tray at ~20–30 cm range.
+The sensor is mounted on the top internal face of the [Digital Dough Box](https://github.com/chilled35/DoughBox), pointing **straight down** toward the dough tray at ~20–30 cm range.
 
 ---
 
@@ -126,11 +127,17 @@ Both modes are selectable from a Home Assistant `select` entity without reflashi
 Calibration captures an **empty-tray + cling film** baseline. Once stored in ESP32 NVS (Preferences), every subsequent reading publishes `delta_mm` values relative to that baseline.
 
 1. Remove dough ball, leave tray + cling film in place
-2. Press **"Capture Calibration Baseline"** button in HA
+2. Press **“Capture Calibration Baseline”** button in HA
 3. ESP32 averages 10 consecutive frames and stores result to flash
 4. `binary_sensor.calibration_valid` turns `on`
 
 See [docs/calibration_guide.md](docs/calibration_guide.md) for full procedure.
+
+---
+
+## Related Project
+
+This monitor is designed to live inside the **[Digital Dough Box](https://github.com/chilled35/DoughBox)** — visit that repository for the full enclosure build, climate control wiring, and the BME280 sensor configuration that provides the temperature and humidity context used alongside this ToF sensor.
 
 ---
 
