@@ -19,7 +19,7 @@
 
   <header>
     <h1>&#x1F35E; TimeOfFlightDough</h1>
-    <div id="connection-status" class="badge connecting">Connecting…</div>
+    <div id="connection-status" class="badge unknown">Loading…</div>
   </header>
 
   <!-- Fallback manual connection panel (shown only when not inside HA iframe) -->
@@ -85,6 +85,10 @@
     const connectPanel = document.getElementById('connect-panel');
     const dashboard    = document.getElementById('dashboard');
     const calBadge     = document.getElementById('cal-badge');
+
+    // If JS module loaded, change badge from "Loading…" to "Connecting…"
+    statusBadge.textContent = 'Connecting…';
+    statusBadge.className   = 'badge connecting';
 
     let viz         = null;
     let displayMode = 'delta';
