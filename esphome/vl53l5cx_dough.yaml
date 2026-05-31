@@ -50,7 +50,7 @@ logger:
   baud_rate: 115200
   logs:
     vl53l5cx: DEBUG
-    i2c.arduino: WARNING
+    i2c.arduino: WARN
 
 api:
   encryption:
@@ -105,6 +105,7 @@ vl53l5cx:
   resolution: 8          # 4 or 8  (8×8 = 64 zones)
   ranging_mode: continuous
   target_order: closest
+  time_id: ha_time
   update_interval: 500ms # 2 fps default; runtime-adjustable via fps_select
 
 # -----------------------------------------------------------------------------
