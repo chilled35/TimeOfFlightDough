@@ -41,17 +41,25 @@ uint8_t VL53L5CX_RdByte(VL53L5CX_Platform *p, uint16_t reg, uint8_t *value) {
 }
 
 uint8_t VL53L5CX_WrMulti(VL53L5CX_Platform *p, uint16_t reg, uint8_t *data, uint32_t size) {
-  uint8_t addr[2];
-  write_reg_addr(addr, reg);
-  std::vector<uint8_t> buf;
-  buf.reserve(2 + size);
-  buf.push_back(addr[0]);
-  buf.push_back(addr[1]);
-  buf.insert(buf.end(), data, data + size);
-  auto err = dev(p)->write(buf.data(), buf.size());
-  // Firmware upload sends many large blocks; reset WDT so 5s timer doesn't fire.
-  esp_task_wdt_reset();
-  return (err == ErrorCode::NO_ERROR) ? 0 : 1;
+  // Write in 512-byte chunks. A single 84 KB I2C transaction may exceed the
+  // ESPHome driver's transfer timeout or internal buffer limits, silently
+  // delivering corrupted firmware to the sensor.
+  const uint32_t CHUNK = 512;
+  uint8_t buf[CHUNK + 2];
+  uint32_t offset = 0;
+
+  while (offset < size) {
+    uint32_t n = std::min(CHUNK, size - offset);
+    uint16_t chunk_reg = static_cast<uint16_t>(reg + offset);
+    buf[0] = static_cast<uint8_t>(chunk_reg >> 8);
+    buf[1] = static_cast<uint8_t>(chunk_reg & 0xFF);
+    memcpy(buf + 2, data + offset, n);
+    auto err = dev(p)->write(buf, n + 2);
+    if (err != ErrorCode::NO_ERROR) return 1;
+    esp_task_wdt_reset();
+    offset += n;
+  }
+  return 0;
 }
 
 uint8_t VL53L5CX_RdMulti(VL53L5CX_Platform *p, uint16_t reg, uint8_t *data, uint32_t size) {
