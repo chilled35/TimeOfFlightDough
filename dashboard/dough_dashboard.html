@@ -96,11 +96,20 @@
 
     async function tryAutoConnect() {
       try {
-        // HA exposes hassConnection on the parent window (same-origin iframe)
-        const { conn } = await window.parent.hassConnection;
-        onConnected(conn);
+        const timeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('hassConnection timeout')), 3000)
+        );
+        const result = await Promise.race([window.parent.hassConnection, timeout]);
+        console.info('hassConnection result:', result);
+        // HA may return { conn } or the conn object directly
+        const conn = result?.conn ?? result;
+        if (conn && typeof conn.subscribeEvents === 'function') {
+          onConnected(conn);
+        } else {
+          throw new Error('conn object not usable: ' + JSON.stringify(Object.keys(result || {})));
+        }
       } catch (e) {
-        console.info('Not inside HA iframe, showing manual connect panel.', e);
+        console.info('Auto-connect failed, showing manual panel.', e.message);
         showManualPanel();
       }
     }
