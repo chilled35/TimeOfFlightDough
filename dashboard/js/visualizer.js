@@ -44,13 +44,17 @@ export class DoughVisualizer {
 
   _init3D() {
     const canvas = this._canvas3d;
-    const w = canvas.clientWidth  || 600;
-    const h = canvas.clientHeight || 400;
 
     this._renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this._renderer.setSize(w, h);
     this._renderer.setPixelRatio(window.devicePixelRatio);
     this._renderer.setClearColor(0x0d0d0d);
+
+    // Defer size read until after the DOM has laid out (canvas may be 0×0 immediately after unhide)
+    requestAnimationFrame(() => this._onResize());
+
+    const w = canvas.clientWidth  || 600;
+    const h = canvas.clientHeight || 400;
+    this._renderer.setSize(w, h, false); // false = don't set canvas CSS size, let CSS control it
 
     this._scene  = new THREE.Scene();
     this._camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);

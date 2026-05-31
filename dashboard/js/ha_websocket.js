@@ -44,13 +44,39 @@ export class HAWebSocket {
       this._stateSubscriptions.set(entityId, []);
     this._stateSubscriptions.get(entityId).push(callback);
 
-    if (this._authenticated) this._subscribeEvents();
+    if (this._authenticated) {
+      this._subscribeEvents();
+      this._fetchCurrentState(entityId, callback);
+    }
 
     return () => {
       const cbs = this._stateSubscriptions.get(entityId) || [];
       const idx = cbs.indexOf(callback);
       if (idx !== -1) cbs.splice(idx, 1);
     };
+  }
+
+  _fetchCurrentState(entityId, callback) {
+    const id = this._nextId();
+    this._pending.set(id, {
+      resolve: (result) => {
+        const state = result?.state;
+        if (state) callback(state);
+      },
+      reject: (err) => console.warn('get_state failed:', err),
+    });
+    this._send({ id, type: 'get_states' });
+    // get_states returns all states; intercept in result handler
+    const origResolve = this._pending.get(id).resolve;
+    this._pending.set(id, {
+      resolve: (result) => {
+        if (Array.isArray(result)) {
+          const entity = result.find(e => e.entity_id === entityId);
+          if (entity) callback(entity.state);
+        }
+      },
+      reject: (err) => console.warn('get_states failed:', err),
+    });
   }
 
   _send(msg) {
