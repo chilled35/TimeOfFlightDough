@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TimeOfFlightDough — Dough Monitor</title>
+  <link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+
+  <header>
+    <h1>&#x1F35E; TimeOfFlightDough</h1>
+    <div id="connection-status" class="badge disconnected">Disconnected</div>
+  </header>
+
+  <!-- Connection panel (hidden once connected) -->
+  <div id="connect-panel">
+    <label>Home Assistant URL
+      <input type="text" id="ha-url" placeholder="http://homeassistant.local:8123" />
+    </label>
+    <label>Long-Lived Access Token
+      <input type="password" id="ha-token" placeholder="eyJ0eXAi..." />
+    </label>
+    <label>Entity ID (grid_data text sensor)
+      <input type="text" id="ha-entity" value="sensor.dough_monitor_grid_data" />
+    </label>
+    <button id="connect-btn">Connect</button>
+    <p class="hint">Token: HA → Profile → Long-Lived Access Tokens</p>
+  </div>
+
+  <!-- Main dashboard (shown once connected) -->
+  <main id="dashboard" class="hidden">
+
+    <section id="controls">
+      <div class="control-group">
+        <span class="label">Mode</span>
+        <button id="mode-btn" class="active" data-mode="delta">Delta (Rise)</button>
+        <button id="mode-raw-btn" data-mode="raw">Raw Distance</button>
+      </div>
+      <div class="control-group">
+        <span class="label">View</span>
+        <button id="view-3d-btn" class="active">3D Surface</button>
+        <button id="view-heatmap-btn">Heatmap</button>
+      </div>
+      <div class="control-group">
+        <span class="label">Scale</span>
+        <input type="range" id="z-scale" min="0.5" max="10" step="0.5" value="3">
+        <span id="z-scale-val">3×</span>
+      </div>
+      <div class="control-group">
+        <span class="label">Calibrated</span>
+        <span id="cal-badge" class="badge unknown">Unknown</span>
+      </div>
+    </section>
+
+    <section id="viz-area">
+      <canvas id="threejs-canvas"></canvas>
+      <canvas id="heatmap-canvas" class="hidden"></canvas>
+    </section>
+
+    <section id="stats">
+      <div class="stat"><span>Centre Distance</span><strong id="stat-centre">--</strong> mm</div>
+      <div class="stat"><span>Max Rise (delta)</span><strong id="stat-max-delta">--</strong> mm</div>
+      <div class="stat"><span>Last Update</span><strong id="stat-ts">--</strong></div>
+      <div class="stat"><span>Mode</span><strong id="stat-mode">--</strong></div>
+    </section>
+
+  </main>
+
+  <!-- Three.js from CDN (pinned minor version for reproducibility) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.163.0/examples/js/controls/OrbitControls.js"></script>
+
+  <script src="js/ha_websocket.js"></script>
+  <script src="js/visualizer.js"></script>
+
+  <script>
+    // -----------------------------------------------------------------------
+    // Glue: connect UI to HA WebSocket and feed data to the visualizer
+    // -----------------------------------------------------------------------
+    const connectBtn = document.getElementById('connect-btn');
+    const connectPanel = document.getElementById('connect-panel');
+    const dashboard = document.getElementById('dashboard');
+    const statusBadge = document.getElementById('connection-status');
+    const calBadge = document.getElementById('cal-badge');
+
+    let ws = null;
+    let viz = null;
+    let displayMode = 'delta'; // 'delta' | 'raw'
+    let viewMode = '3d';       // '3d' | 'heatmap'
+
+    // --- Persist connection details across reloads -----------------------
+    ['ha-url', 'ha-token', 'ha-entity'].forEach(id => {
+      const el = document.getElementById(id);
+      const saved = localStorage.getItem('tof_' + id);
+      if (saved) el.value = saved;
+      el.addEventListener('input', () => localStorage.setItem('tof_' + id, el.value));
+    });
+
+    connectBtn.addEventListener('click', () => {
+      const url    = document.getElementById('ha-url').value.trim();
+      const token  = document.getElementById('ha-token').value.trim();
+      const entity = document.getElementById('ha-entity').value.trim();
+
+      if (!url || !token || !entity) {
+        alert('Please fill in all connection fields.');
+        return;
+      }
+
+      statusBadge.textContent = 'Connecting…';
+      statusBadge.className = 'badge connecting';
+
+      ws = new HAWebSocket(url, token);
+
+      ws.onConnect = () => {
+        statusBadge.textContent = 'Connected';
+        statusBadge.className = 'badge connected';
+        connectPanel.classList.add('hidden');
+        dashboard.classList.remove('hidden');
+
+        // Initialise the 3D visualizer once the canvas is visible
+        viz = new DoughVisualizer(
+          document.getElementById('threejs-canvas'),
+          document.getElementById('heatmap-canvas')
+        );
+        viz.setZScale(parseFloat(document.getElementById('z-scale').value));
+
+        ws.subscribeState(entity, onGridData);
+      };
+
+      ws.onDisconnect = () => {
+        statusBadge.textContent = 'Disconnected';
+        statusBadge.className = 'badge disconnected';
+      };
+
+      ws.onError = (err) => {
+        statusBadge.textContent = 'Error';
+        statusBadge.className = 'badge error';
+        console.error('HA WebSocket error:', err);
+      };
+
+      ws.connect();
+    });
+
+    function onGridData(state) {
+      if (!state || state === 'unavailable' || state === 'unknown') return;
+      let data;
+      try {
+        data = JSON.parse(state);
+      } catch (e) {
+        console.warn('Could not parse grid_data JSON:', e);
+        return;
+      }
+
+      // Calibration badge
+      calBadge.textContent = data.cal_valid ? 'Valid' : 'None';
+      calBadge.className = 'badge ' + (data.cal_valid ? 'connected' : 'error');
+
+      // Stats
+      const res = data.res || 8;
+      const centre = Math.floor(res / 2) * res + Math.floor(res / 2);
+      document.getElementById('stat-centre').textContent = data.distances_mm[centre] ?? '--';
+      const maxDelta = data.delta_mm ? Math.max(...data.delta_mm) : 0;
+      document.getElementById('stat-max-delta').textContent = maxDelta;
+      document.getElementById('stat-ts').textContent =
+        data.ts ? new Date(data.ts * 1000).toLocaleTimeString() : '--';
+      document.getElementById('stat-mode').textContent = data.mode || '--';
+
+      // Feed visualizer
+      if (viz) {
+        const values = displayMode === 'delta' && data.cal_valid
+          ? data.delta_mm
+          : data.distances_mm;
+        viz.update(values, res, displayMode === 'delta');
+      }
+    }
+
+    // --- Control wire-up -------------------------------------------------
+    document.getElementById('mode-btn').addEventListener('click', () => {
+      displayMode = 'delta';
+      document.getElementById('mode-btn').classList.add('active');
+      document.getElementById('mode-raw-btn').classList.remove('active');
+    });
+    document.getElementById('mode-raw-btn').addEventListener('click', () => {
+      displayMode = 'raw';
+      document.getElementById('mode-raw-btn').classList.add('active');
+      document.getElementById('mode-btn').classList.remove('active');
+    });
+
+    document.getElementById('view-3d-btn').addEventListener('click', () => {
+      viewMode = '3d';
+      document.getElementById('threejs-canvas').classList.remove('hidden');
+      document.getElementById('heatmap-canvas').classList.add('hidden');
+      document.getElementById('view-3d-btn').classList.add('active');
+      document.getElementById('view-heatmap-btn').classList.remove('active');
+      if (viz) viz.setViewMode('3d');
+    });
+    document.getElementById('view-heatmap-btn').addEventListener('click', () => {
+      viewMode = 'heatmap';
+      document.getElementById('heatmap-canvas').classList.remove('hidden');
+      document.getElementById('threejs-canvas').classList.add('hidden');
+      document.getElementById('view-heatmap-btn').classList.add('active');
+      document.getElementById('view-3d-btn').classList.remove('active');
+      if (viz) viz.setViewMode('heatmap');
+    });
+
+    const zScaleSlider = document.getElementById('z-scale');
+    zScaleSlider.addEventListener('input', () => {
+      const v = parseFloat(zScaleSlider.value);
+      document.getElementById('z-scale-val').textContent = v + '×';
+      if (viz) viz.setZScale(v);
+    });
+  </script>
+</body>
+</html>
