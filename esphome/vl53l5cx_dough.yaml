@@ -1,0 +1,246 @@
+# =============================================================================
+# TimeOfFlightDough — ESPHome Configuration
+# Board  : Seeed XIAO ESP32-S3
+# Sensor : STMicroelectronics VL53L5CX (8×8 ToF)
+#
+# Flash  : esphome run vl53l5cx_dough.yaml
+# Secrets: copy secrets.yaml.example → secrets.yaml and fill in your values
+# =============================================================================
+
+substitutions:
+  device_name: dough-monitor
+  friendly_name: "Dough Monitor"
+  i2c_sda: GPIO5   # XIAO ESP32-S3 D4
+  i2c_scl: GPIO6   # XIAO ESP32-S3 D5
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  comment: "VL53L5CX 8×8 ToF dough proofing monitor — TimeOfFlightDough"
+  platformio_options:
+    build_flags:
+      - -DBOARD_HAS_PSRAM
+      - -DARDUINO_USB_MODE=1
+      - -DARDUINO_USB_CDC_ON_BOOT=1
+    board_build.arduino.memory_type: qio_opi
+    board_build.flash_mode: qio
+
+esp32:
+  board: seeed_xiao_esp32s3
+  variant: esp32s3
+  framework:
+    type: arduino
+    version: recommended
+
+# -----------------------------------------------------------------------------
+# External component — custom VL53L5CX ESPHome wrapper
+# During development: local path. Production: point to GitHub release tag.
+# -----------------------------------------------------------------------------
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [vl53l5cx]
+
+# -----------------------------------------------------------------------------
+# Core services
+# -----------------------------------------------------------------------------
+logger:
+  level: DEBUG
+  baud_rate: 115200
+  logs:
+    vl53l5cx: DEBUG
+    i2c.arduino: WARNING
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  on_client_connected:
+    - logger.log:
+        format: "HA client connected: %s"
+        args: [client_info.c_str()]
+  on_client_disconnected:
+    - logger.log: "HA client disconnected"
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+  power_save_mode: NONE
+  reboot_timeout: 5min
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: !secret ap_fallback_password
+
+captive_portal:
+
+# -----------------------------------------------------------------------------
+# I²C bus
+# -----------------------------------------------------------------------------
+i2c:
+  - id: i2c_bus
+    sda: ${i2c_sda}
+    scl: ${i2c_scl}
+    frequency: 400kHz
+    scan: true
+
+# -----------------------------------------------------------------------------
+# Time — used for Unix timestamps embedded in the JSON payload
+# -----------------------------------------------------------------------------
+time:
+  - platform: homeassistant
+    id: ha_time
+
+# -----------------------------------------------------------------------------
+# VL53L5CX sensor
+# -----------------------------------------------------------------------------
+vl53l5cx:
+  id: tof_sensor
+  i2c_id: i2c_bus
+  address: 0x29          # 7-bit (ST 8-bit default 0x52 >> 1)
+  resolution: 8          # 4 or 8  (8×8 = 64 zones)
+  ranging_mode: continuous
+  target_order: closest
+  update_interval: 500ms # 2 fps default; runtime-adjustable via fps_select
+
+# -----------------------------------------------------------------------------
+# Text sensor — publishes full 8×8 grid as JSON for the dashboard
+# -----------------------------------------------------------------------------
+text_sensor:
+  - platform: vl53l5cx
+    vl53l5cx_id: tof_sensor
+    name: "Grid Data"
+    id: grid_data
+    icon: "mdi:grid"
+
+# -----------------------------------------------------------------------------
+# Numeric sensors
+# -----------------------------------------------------------------------------
+sensor:
+  - platform: vl53l5cx
+    vl53l5cx_id: tof_sensor
+    name: "Centre Zone Distance"
+    id: centre_distance
+    zone_row: 3
+    zone_col: 3
+    unit_of_measurement: mm
+    icon: "mdi:ruler"
+    accuracy_decimals: 0
+    filters:
+      - median:
+          window_size: 5
+          send_every: 1
+      - delta: 1.0
+
+  - platform: vl53l5cx
+    vl53l5cx_id: tof_sensor
+    name: "Centre Zone Delta"
+    id: centre_delta
+    zone_row: 3
+    zone_col: 3
+    data_type: delta_mm
+    unit_of_measurement: mm
+    icon: "mdi:arrow-expand-vertical"
+    accuracy_decimals: 0
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+
+# -----------------------------------------------------------------------------
+# FPS control (1–5 fps for testing; will add slow-mode interval separately)
+# -----------------------------------------------------------------------------
+number:
+  - platform: template
+    name: "Frame Rate (fps)"
+    id: fps_select
+    min_value: 1
+    max_value: 5
+    step: 1
+    initial_value: 2
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: fps
+    icon: "mdi:speedometer"
+    set_action:
+      - lambda: |-
+          uint32_t ms = static_cast<uint32_t>(1000.0f / x);
+          id(tof_sensor).set_update_interval(ms);
+          ESP_LOGI("fps", "Rate → %.0f fps (%u ms)", x, ms);
+
+  - platform: template
+    name: "Averaging Window"
+    id: avg_window
+    min_value: 1
+    max_value: 60
+    step: 1
+    initial_value: 10
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: frames
+    icon: "mdi:chart-bell-curve"
+    set_action:
+      - lambda: |-
+          id(tof_sensor).set_averaging_window(static_cast<uint8_t>(x));
+
+# -----------------------------------------------------------------------------
+# Operating mode
+# -----------------------------------------------------------------------------
+select:
+  - platform: template
+    name: "Operating Mode"
+    id: operating_mode
+    options:
+      - "Live (Testing)"
+      - "Averaged (Production)"
+    initial_option: "Live (Testing)"
+    restore_value: true
+    optimistic: true
+    icon: "mdi:toggle-switch"
+    set_action:
+      - lambda: |-
+          id(tof_sensor).set_operating_mode(x == "Averaged (Production)");
+
+# -----------------------------------------------------------------------------
+# Calibration controls
+# -----------------------------------------------------------------------------
+button:
+  - platform: template
+    name: "Capture Calibration Baseline"
+    id: calibrate_btn
+    icon: "mdi:target"
+    on_press:
+      - logger.log: "Calibration baseline capture triggered"
+      - lambda: id(tof_sensor).capture_baseline();
+
+  - platform: template
+    name: "Clear Calibration"
+    id: clear_cal_btn
+    icon: "mdi:delete-outline"
+    on_press:
+      - lambda: id(tof_sensor).clear_baseline();
+
+  - platform: restart
+    name: "Restart Device"
+    icon: "mdi:restart"
+
+# -----------------------------------------------------------------------------
+# Calibration validity
+# -----------------------------------------------------------------------------
+binary_sensor:
+  - platform: vl53l5cx
+    vl53l5cx_id: tof_sensor
+    name: "Calibration Valid"
+    id: cal_valid
+    icon: "mdi:check-circle-outline"
+
+  - platform: status
+    name: "Device Online"
