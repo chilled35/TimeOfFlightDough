@@ -1,5 +1,5 @@
 /*
- * VL53L5CX Platform Abstraction Layer — ESPHome / ESP32 implementation.
+ * VL53L8CX Platform Abstraction Layer — ESPHome / ESP32 implementation.
  */
 
 #include "platform.h"
@@ -8,13 +8,13 @@
 #include "esphome/core/log.h"
 #include "esp_task_wdt.h"
 
-#include <vector>
+#include <algorithm>
 
 using namespace esphome::i2c;
 
-static const char *const TAG_PAL = "vl53l5cx_pal";
+static const char *const TAG_PAL = "vl53l8cx_pal";
 
-static inline I2CDevice *dev(VL53L5CX_Platform *p) {
+static inline I2CDevice *dev(VL53L8CX_Platform *p) {
   return reinterpret_cast<I2CDevice *>(p->i2c_handle);
 }
 
@@ -23,7 +23,7 @@ static void write_reg_addr(uint8_t *buf, uint16_t reg) {
   buf[1] = static_cast<uint8_t>(reg & 0xFF);
 }
 
-uint8_t VL53L5CX_WrByte(VL53L5CX_Platform *p, uint16_t reg, uint8_t value) {
+uint8_t VL53L8CX_WrByte(VL53L8CX_Platform *p, uint16_t reg, uint8_t value) {
   uint8_t buf[3];
   write_reg_addr(buf, reg);
   buf[2] = value;
@@ -31,7 +31,7 @@ uint8_t VL53L5CX_WrByte(VL53L5CX_Platform *p, uint16_t reg, uint8_t value) {
   return (err == ErrorCode::NO_ERROR) ? 0 : 1;
 }
 
-uint8_t VL53L5CX_RdByte(VL53L5CX_Platform *p, uint16_t reg, uint8_t *value) {
+uint8_t VL53L8CX_RdByte(VL53L8CX_Platform *p, uint16_t reg, uint8_t *value) {
   uint8_t addr[2];
   write_reg_addr(addr, reg);
   auto err = dev(p)->write(addr, 2);
@@ -40,10 +40,10 @@ uint8_t VL53L5CX_RdByte(VL53L5CX_Platform *p, uint16_t reg, uint8_t *value) {
   return (err == ErrorCode::NO_ERROR) ? 0 : 1;
 }
 
-uint8_t VL53L5CX_WrMulti(VL53L5CX_Platform *p, uint16_t reg, uint8_t *data, uint32_t size) {
-  // Write in 512-byte chunks. A single 84 KB I2C transaction may exceed the
-  // ESPHome driver's transfer timeout or internal buffer limits, silently
-  // delivering corrupted firmware to the sensor.
+uint8_t VL53L8CX_WrMulti(VL53L8CX_Platform *p, uint16_t reg, uint8_t *data, uint32_t size) {
+  // Write in 512-byte chunks. A single large I2C transaction may exceed the
+  // ESPHome driver's transfer timeout or internal buffer limits.
+  // WDT is reset between chunks so long uploads don't trigger the watchdog.
   const uint32_t CHUNK = 512;
   uint8_t buf[CHUNK + 2];
   uint32_t offset = 0;
@@ -62,7 +62,7 @@ uint8_t VL53L5CX_WrMulti(VL53L5CX_Platform *p, uint16_t reg, uint8_t *data, uint
   return 0;
 }
 
-uint8_t VL53L5CX_RdMulti(VL53L5CX_Platform *p, uint16_t reg, uint8_t *data, uint32_t size) {
+uint8_t VL53L8CX_RdMulti(VL53L8CX_Platform *p, uint16_t reg, uint8_t *data, uint32_t size) {
   uint8_t addr[2];
   write_reg_addr(addr, reg);
   auto err = dev(p)->write(addr, 2);
@@ -71,12 +71,12 @@ uint8_t VL53L5CX_RdMulti(VL53L5CX_Platform *p, uint16_t reg, uint8_t *data, uint
   return (err == ErrorCode::NO_ERROR) ? 0 : 1;
 }
 
-uint8_t VL53L5CX_Reset_Sensor(VL53L5CX_Platform *p) {
+uint8_t VL53L8CX_Reset_Sensor(VL53L8CX_Platform *p) {
   (void)p;
   return 0;
 }
 
-void VL53L5CX_SwapBuffer(uint8_t *buffer, uint16_t size) {
+void VL53L8CX_SwapBuffer(uint8_t *buffer, uint16_t size) {
   for (uint16_t i = 0; i < size; i += 4) {
     uint8_t tmp;
     tmp = buffer[i];     buffer[i]     = buffer[i + 3]; buffer[i + 3] = tmp;
@@ -84,7 +84,7 @@ void VL53L5CX_SwapBuffer(uint8_t *buffer, uint16_t size) {
   }
 }
 
-uint8_t VL53L5CX_WaitMs(VL53L5CX_Platform *p, uint32_t ms) {
+uint8_t VL53L8CX_WaitMs(VL53L8CX_Platform *p, uint32_t ms) {
   (void)p;
   esphome::delay(ms);
   return 0;

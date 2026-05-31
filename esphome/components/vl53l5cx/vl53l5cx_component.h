@@ -8,10 +8,9 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/time/real_time_clock.h"
 
-// ST ULD driver — place all driver files in the same directory as this file
-// (esphome/components/vl53l5cx/). See driver/DRIVER_README.md for the file list.
+// ST ULD driver — place all VL53L8CX driver files in the same directory as this file.
 extern "C" {
-#include "vl53l5cx_api.h"
+#include "vl53l8cx_api.h"
 }
 
 #include <array>
@@ -72,7 +71,7 @@ class VL53L5CXComponent : public PollingComponent, public i2c::I2CDevice {
   void load_calibration_();
   uint8_t zone_index_(uint8_t row, uint8_t col) const { return row * resolution_ + col; }
 
-  VL53L5CX_Configuration dev_{};
+  VL53L8CX_Configuration dev_{};
 
   uint8_t resolution_{8};
   uint8_t ranging_mode_{1};
@@ -82,7 +81,7 @@ class VL53L5CXComponent : public PollingComponent, public i2c::I2CDevice {
 
   time::RealTimeClock *time_{nullptr};
 
-  VL53L5CX_ResultsData results_{};
+  VL53L8CX_ResultsData results_{};
   uint16_t distance_mm_[NUM_ZONES_MAX]{};
   uint32_t signal_kcps_[NUM_ZONES_MAX]{};
   uint8_t  nb_targets_[NUM_ZONES_MAX]{};
