@@ -5,6 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TimeOfFlightDough — Dough Monitor</title>
   <link rel="stylesheet" href="css/dashboard.css">
+
+  <!-- Tell the browser where to resolve bare module specifiers -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three":          "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+      "three/addons/":  "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+    }
+  }
+  </script>
 </head>
 <body>
 
@@ -67,31 +77,24 @@
 
   </main>
 
-  <!-- Three.js from CDN (pinned minor version for reproducibility) -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.163.0/examples/js/controls/OrbitControls.js"></script>
+  <script type="module">
+    import { HAWebSocket }    from './js/ha_websocket.js';
+    import { DoughVisualizer } from './js/visualizer.js';
 
-  <script src="js/ha_websocket.js"></script>
-  <script src="js/visualizer.js"></script>
-
-  <script>
-    // -----------------------------------------------------------------------
-    // Glue: connect UI to HA WebSocket and feed data to the visualizer
-    // -----------------------------------------------------------------------
-    const connectBtn = document.getElementById('connect-btn');
+    const connectBtn   = document.getElementById('connect-btn');
     const connectPanel = document.getElementById('connect-panel');
-    const dashboard = document.getElementById('dashboard');
-    const statusBadge = document.getElementById('connection-status');
-    const calBadge = document.getElementById('cal-badge');
+    const dashboard    = document.getElementById('dashboard');
+    const statusBadge  = document.getElementById('connection-status');
+    const calBadge     = document.getElementById('cal-badge');
 
-    let ws = null;
-    let viz = null;
+    let ws          = null;
+    let viz         = null;
     let displayMode = 'delta'; // 'delta' | 'raw'
-    let viewMode = '3d';       // '3d' | 'heatmap'
+    let viewMode    = '3d';    // '3d' | 'heatmap'
 
-    // --- Persist connection details across reloads -----------------------
+    // Persist connection details across reloads
     ['ha-url', 'ha-token', 'ha-entity'].forEach(id => {
-      const el = document.getElementById(id);
+      const el    = document.getElementById(id);
       const saved = localStorage.getItem('tof_' + id);
       if (saved) el.value = saved;
       el.addEventListener('input', () => localStorage.setItem('tof_' + id, el.value));
@@ -108,17 +111,17 @@
       }
 
       statusBadge.textContent = 'Connecting…';
-      statusBadge.className = 'badge connecting';
+      statusBadge.className   = 'badge connecting';
 
       ws = new HAWebSocket(url, token);
 
       ws.onConnect = () => {
         statusBadge.textContent = 'Connected';
-        statusBadge.className = 'badge connected';
+        statusBadge.className   = 'badge connected';
         connectPanel.classList.add('hidden');
         dashboard.classList.remove('hidden');
 
-        // Initialise the 3D visualizer once the canvas is visible
+        // Initialise the visualizer after the canvas is visible
         viz = new DoughVisualizer(
           document.getElementById('threejs-canvas'),
           document.getElementById('heatmap-canvas')
@@ -130,12 +133,12 @@
 
       ws.onDisconnect = () => {
         statusBadge.textContent = 'Disconnected';
-        statusBadge.className = 'badge disconnected';
+        statusBadge.className   = 'badge disconnected';
       };
 
       ws.onError = (err) => {
         statusBadge.textContent = 'Error';
-        statusBadge.className = 'badge error';
+        statusBadge.className   = 'badge error';
         console.error('HA WebSocket error:', err);
       };
 
@@ -145,28 +148,19 @@
     function onGridData(state) {
       if (!state || state === 'unavailable' || state === 'unknown') return;
       let data;
-      try {
-        data = JSON.parse(state);
-      } catch (e) {
-        console.warn('Could not parse grid_data JSON:', e);
-        return;
-      }
+      try { data = JSON.parse(state); }
+      catch (e) { console.warn('Could not parse grid_data JSON:', e); return; }
 
-      // Calibration badge
       calBadge.textContent = data.cal_valid ? 'Valid' : 'None';
-      calBadge.className = 'badge ' + (data.cal_valid ? 'connected' : 'error');
+      calBadge.className   = 'badge ' + (data.cal_valid ? 'connected' : 'error');
 
-      // Stats
-      const res = data.res || 8;
+      const res    = data.res || 8;
       const centre = Math.floor(res / 2) * res + Math.floor(res / 2);
-      document.getElementById('stat-centre').textContent = data.distances_mm[centre] ?? '--';
-      const maxDelta = data.delta_mm ? Math.max(...data.delta_mm) : 0;
-      document.getElementById('stat-max-delta').textContent = maxDelta;
-      document.getElementById('stat-ts').textContent =
-        data.ts ? new Date(data.ts * 1000).toLocaleTimeString() : '--';
-      document.getElementById('stat-mode').textContent = data.mode || '--';
+      document.getElementById('stat-centre').textContent    = data.distances_mm[centre] ?? '--';
+      document.getElementById('stat-max-delta').textContent = data.delta_mm ? Math.max(...data.delta_mm) : 0;
+      document.getElementById('stat-ts').textContent        = data.ts ? new Date(data.ts * 1000).toLocaleTimeString() : '--';
+      document.getElementById('stat-mode').textContent      = data.mode || '--';
 
-      // Feed visualizer
       if (viz) {
         const values = displayMode === 'delta' && data.cal_valid
           ? data.delta_mm
@@ -175,7 +169,7 @@
       }
     }
 
-    // --- Control wire-up -------------------------------------------------
+    // Control wire-up
     document.getElementById('mode-btn').addEventListener('click', () => {
       displayMode = 'delta';
       document.getElementById('mode-btn').classList.add('active');
@@ -204,9 +198,8 @@
       if (viz) viz.setViewMode('heatmap');
     });
 
-    const zScaleSlider = document.getElementById('z-scale');
-    zScaleSlider.addEventListener('input', () => {
-      const v = parseFloat(zScaleSlider.value);
+    document.getElementById('z-scale').addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
       document.getElementById('z-scale-val').textContent = v + '×';
       if (viz) viz.setZScale(v);
     });
