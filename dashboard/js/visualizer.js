@@ -121,8 +121,10 @@ export class DoughVisualizer {
 
     for (let i = 0; i < n; i++) {
       const v = values[i] ?? 0;
+      // Both modes normalise to the data range so small variations are always visible.
+      // Delta: higher = more risen (positive delta up). Raw: lower mm = closer = higher peak.
       const z = isDelta
-        ? (v / 100.0) * this._zScale
+        ? ((v - vMin) / vRange) * this._zScale
         : ((vMax - v) / vRange) * this._zScale;
 
       pos.setZ(i, z);

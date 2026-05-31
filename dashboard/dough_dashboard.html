@@ -129,13 +129,16 @@
         connectPanel.classList.add('hidden');
         dashboard.classList.remove('hidden');
 
-        requestAnimationFrame(() => {
-          viz = new DoughVisualizer(
-            document.getElementById('threejs-canvas'),
-            document.getElementById('heatmap-canvas')
-          );
-          viz.setZScale(parseFloat(document.getElementById('z-scale').value));
-        });
+        // Only create viz once — SSE can reconnect and re-fire onConnect
+        if (!viz) {
+          requestAnimationFrame(() => {
+            viz = new DoughVisualizer(
+              document.getElementById('threejs-canvas'),
+              document.getElementById('heatmap-canvas')
+            );
+            viz.setZScale(parseFloat(document.getElementById('z-scale').value));
+          });
+        }
       };
 
       sse.onDisconnect = () => {
