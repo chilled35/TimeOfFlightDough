@@ -82,6 +82,21 @@ bool VL53L5CXComponent::init_sensor_() {
   // address. Explicit upcast ensures the PAL gets the correct vtable pointer.
   dev_.platform.i2c_handle = static_cast<i2c::I2CDevice *>(this);
 
+  // Read device ID registers before calling vl53l5cx_init so we can diagnose
+  // failures. Page 0 selected by writing 0x00 to register 0x7FFF.
+  // Expected: device_id=0xF0 at reg 0x0000, revision_id=0x02 at reg 0x0001.
+  {
+    uint8_t sel[3] = {0x7F, 0xFF, 0x00};
+    this->write(sel, 3);
+    uint8_t reg0[2] = {0x00, 0x00};
+    uint8_t dev_id = 0, rev_id = 0;
+    this->write(reg0, 2); this->read(&dev_id, 1);
+    uint8_t reg1[2] = {0x00, 0x01};
+    this->write(reg1, 2); this->read(&rev_id, 1);
+    ESP_LOGD(TAG, "device_id=0x%02X (expect 0xF0), revision_id=0x%02X (expect 0x02)",
+             dev_id, rev_id);
+  }
+
   uint8_t status = vl53l5cx_init(&dev_);
   if (status != VL53L5CX_STATUS_OK) {
     ESP_LOGE(TAG, "vl53l5cx_init failed (%u)", status);
