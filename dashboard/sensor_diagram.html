@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VL53L8CX — Detection Zone Diagram</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0a12;
+      color: #e0e0f0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    header {
+      padding: 10px 20px;
+      background: #1a1a2e;
+      border-bottom: 1px solid #2a2a4a;
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 1rem; font-weight: 600; color: #00d4ff; }
+    header p  { font-size: 0.78rem; color: #888ab0; }
+    #c { flex: 1; display: block; width: 100%; }
+    #legend {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      background: rgba(26,26,46,0.88);
+      border: 1px solid #2a2a4a;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 0.75rem;
+      line-height: 1.8;
+      color: #888ab0;
+      pointer-events: none;
+    }
+    #legend b { color: #e0e0f0; }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three":                                  "./js/vendor/three.module.js",
+      "three/addons/controls/OrbitControls.js": "./js/vendor/OrbitControls.js"
+    }
+  }
+  </script>
+</head>
+<body>
+
+<header>
+  <h1>VL53L8CX — 8×8 Detection Zone Projection</h1>
+  <p>Mount height: 200 mm &nbsp;|&nbsp; FoV: 63° diagonal (≈ 45° H×V) &nbsp;|&nbsp; Footprint: ≈ 164 × 164 mm &nbsp;|&nbsp; Zone: ≈ 20.5 × 20.5 mm &nbsp;|&nbsp; Drag to rotate</p>
+</header>
+
+<canvas id="c"></canvas>
+
+<div id="legend">
+  <b>Sensor</b> — mounted at top, facing down<br>
+  <b style="color:#ffdd57">━ Cone</b> — outer edge of detection field<br>
+  <b style="color:#00d4ff">▪ Zones</b> — 64 individual measurement zones<br>
+  <b style="color:#ff6b6b">▪ Centre</b> — zones 3,3 → 4,4 (dashboard default)<br>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ── Physical constants (all in mm, then scaled to Three.js units) ──────────
+const MOUNT_MM   = 200;        // sensor height above surface
+const FOV_DIAG   = 63;         // VL53L8CX diagonal FoV in degrees
+const FOV_SIDE   = FOV_DIAG / Math.SQRT2;  // ≈ 44.5° per axis
+const HALF_FOV   = (FOV_SIDE / 2) * (Math.PI / 180);
+const FOOT_HALF  = MOUNT_MM * Math.tan(HALF_FOV);   // ≈ 81.8 mm
+const FOOT_FULL  = FOOT_HALF * 2;                   // ≈ 163.6 mm
+const ZONE_MM    = FOOT_FULL / 8;                   // ≈ 20.5 mm
+const RES        = 8;
+const S          = 0.01;  // scale: mm → Three.js units (1 unit = 100mm)
+
+const H  = MOUNT_MM  * S;
+const FH = FOOT_HALF * S;
+const FF = FOOT_FULL * S;
+const ZS = ZONE_MM   * S;
+
+// ── Renderer ───────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setClearColor(0x0a0a12);
+renderer.shadowMap.enabled = true;
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.001, 100);
+camera.position.set(2.8, 2.2, 2.8);
+camera.lookAt(0, H * 0.4, 0);
+
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, H * 0.4, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.07;
+controls.update();
+
+// ── Lighting ───────────────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+sun.position.set(3, 5, 3);
+scene.add(sun);
+
+// ── Ground plane ───────────────────────────────────────────────────────────
+{
+  const geo = new THREE.PlaneGeometry(5, 5);
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x111122, roughness: 0.9, metalness: 0.1
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.x = -Math.PI / 2;
+  scene.add(mesh);
+
+  // Subtle grid
+  const grid = new THREE.GridHelper(5, 50, 0x1a1a3a, 0x1a1a3a);
+  scene.add(grid);
+}
+
+// ── Zone tiles on ground ───────────────────────────────────────────────────
+{
+  const centreColour   = new THREE.Color(0xff4444);
+  const standardColour = new THREE.Color(0x1a6080);
+  const altColour      = new THREE.Color(0x174f66);
+  const edgeColour     = new THREE.Color(0x0d3344);
+
+  for (let row = 0; row < RES; row++) {
+    for (let col = 0; col < RES; col++) {
+      const isCentre = (row === 3 || row === 4) && (col === 3 || col === 4);
+      const isEdge   = row === 0 || row === 7 || col === 0 || col === 7;
+      const isAlt    = (row + col) % 2 === 0;
+
+      let colour = isCentre ? centreColour
+                 : isEdge   ? edgeColour
+                 : isAlt    ? standardColour : altColour;
+
+      const geo = new THREE.PlaneGeometry(ZS * 0.92, ZS * 0.92);
+      const mat = new THREE.MeshStandardMaterial({
+        color: colour, roughness: 0.8, transparent: true, opacity: 0.85
+      });
+      const tile = new THREE.Mesh(geo, mat);
+      tile.rotation.x = -Math.PI / 2;
+      tile.position.set(
+        (-FH + ZS * 0.5 + col * ZS),
+        0.001,
+        (-FH + ZS * 0.5 + row * ZS)
+      );
+      scene.add(tile);
+    }
+  }
+
+  // Zone grid lines on ground
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x00d4ff, opacity: 0.35, transparent: true });
+  for (let i = 0; i <= RES; i++) {
+    const t = -FH + i * ZS;
+    const hGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-FH, 0.002, t),
+      new THREE.Vector3( FH, 0.002, t),
+    ]);
+    const vGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(t, 0.002, -FH),
+      new THREE.Vector3(t, 0.002,  FH),
+    ]);
+    scene.add(new THREE.Line(hGeo, lineMat));
+    scene.add(new THREE.Line(vGeo, lineMat));
+  }
+}
+
+// ── Sensor body (top) ─────────────────────────────────────────────────────
+{
+  // PCB
+  const pcbGeo = new THREE.BoxGeometry(0.064 * 2, 0.008, 0.03 * 2);
+  const pcbMat = new THREE.MeshStandardMaterial({ color: 0x1a3a1a, roughness: 0.6 });
+  const pcb = new THREE.Mesh(pcbGeo, pcbMat);
+  pcb.position.set(0, H + 0.004, 0);
+  scene.add(pcb);
+
+  // Lens
+  const lensGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.006, 16);
+  const lensMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.2, metalness: 0.8 });
+  const lens = new THREE.Mesh(lensGeo, lensMat);
+  lens.position.set(0, H + 0.009, 0);
+  scene.add(lens);
+
+  // Lens glass
+  const glassGeo = new THREE.CylinderGeometry(0.009, 0.009, 0.002, 16);
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: 0x3399ff, roughness: 0.1, metalness: 0.5, transparent: true, opacity: 0.7
+  });
+  const glass = new THREE.Mesh(glassGeo, glassMat);
+  glass.position.set(0, H + 0.012, 0);
+  scene.add(glass);
+}
+
+// ── Detection cone ─────────────────────────────────────────────────────────
+{
+  // 4 outer edges of the pyramid
+  const apex = new THREE.Vector3(0, H, 0);
+  const corners = [
+    new THREE.Vector3(-FH, 0, -FH),
+    new THREE.Vector3( FH, 0, -FH),
+    new THREE.Vector3( FH, 0,  FH),
+    new THREE.Vector3(-FH, 0,  FH),
+  ];
+
+  const edgeMat = new THREE.LineBasicMaterial({ color: 0xffdd57, opacity: 0.7, transparent: true });
+  corners.forEach(c => {
+    const geo = new THREE.BufferGeometry().setFromPoints([apex, c]);
+    scene.add(new THREE.Line(geo, edgeMat));
+  });
+
+  // Base rectangle of cone
+  const basePoints = [...corners, corners[0]];
+  const baseGeo = new THREE.BufferGeometry().setFromPoints(basePoints);
+  scene.add(new THREE.Line(baseGeo, edgeMat));
+
+  // Semi-transparent cone faces
+  const faceMat = new THREE.MeshBasicMaterial({
+    color: 0xffdd57, transparent: true, opacity: 0.04,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+  [[0,1],[1,2],[2,3],[3,0]].forEach(([a, b]) => {
+    const geo = new THREE.BufferGeometry().setFromPoints([apex, corners[a], corners[b]]);
+    geo.setIndex([0,1,2]);
+    geo.computeVertexNormals();
+    scene.add(new THREE.Mesh(geo, faceMat));
+  });
+}
+
+// ── Dimension lines ────────────────────────────────────────────────────────
+{
+  const dimMat = new THREE.LineBasicMaterial({ color: 0x888ab0, opacity: 0.6, transparent: true });
+
+  // Height line
+  const hGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(FH + 0.15, 0, 0),
+    new THREE.Vector3(FH + 0.15, H, 0),
+  ]);
+  scene.add(new THREE.Line(hGeo, dimMat));
+
+  // Footprint width line
+  const fGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-FH, -0.05, FH + 0.1),
+    new THREE.Vector3( FH, -0.05, FH + 0.1),
+  ]);
+  scene.add(new THREE.Line(fGeo, dimMat));
+
+  // Tick marks
+  const tickH = 0.04;
+  [0, H].forEach(y => {
+    const t = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(FH + 0.12, y, 0),
+      new THREE.Vector3(FH + 0.18, y, 0),
+    ]);
+    scene.add(new THREE.Line(t, dimMat));
+  });
+  [-FH, FH].forEach(x => {
+    const t = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(x, -0.05, FH + 0.07),
+      new THREE.Vector3(x, -0.05, FH + 0.13),
+    ]);
+    scene.add(new THREE.Line(t, dimMat));
+  });
+
+  // Centre cross on ground
+  const crossMat = new THREE.LineBasicMaterial({ color: 0xff4444, opacity: 0.5, transparent: true });
+  const cx = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-0.06, 0.003, 0), new THREE.Vector3(0.06, 0.003, 0)
+  ]);
+  const cz = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0.003, -0.06), new THREE.Vector3(0, 0.003, 0.06)
+  ]);
+  scene.add(new THREE.Line(cx, crossMat));
+  scene.add(new THREE.Line(cz, crossMat));
+
+  // Vertical axis from sensor to ground
+  const axGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0.001, 0),
+    new THREE.Vector3(0, H, 0),
+  ]);
+  const axMat = new THREE.LineDashedMaterial({ color: 0x444466, dashSize: 0.03, gapSize: 0.02 });
+  const axLine = new THREE.Line(axGeo, axMat);
+  axLine.computeLineDistances();
+  scene.add(axLine);
+}
+
+// ── Floating text labels (canvas sprites) ─────────────────────────────────
+function makeLabel(text, fontSize = 22) {
+  const canvas = document.createElement('canvas');
+  canvas.width  = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 256, 64);
+  ctx.fillStyle = 'rgba(26,26,46,0.75)';
+  ctx.roundRect(2, 2, 252, 60, 6);
+  ctx.fill();
+  ctx.fillStyle = '#e0e0f0';
+  ctx.font = `${fontSize}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 128, 32);
+  const tex = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(0.6, 0.15, 1);
+  return sprite;
+}
+
+const heightLabel = makeLabel('200 mm');
+heightLabel.position.set(FH + 0.38, H / 2, 0);
+scene.add(heightLabel);
+
+const footLabel = makeLabel('≈ 164 mm');
+footLabel.position.set(0, -0.12, FH + 0.22);
+scene.add(footLabel);
+
+const zoneLabel = makeLabel('Zone ≈ 20.5 mm', 18);
+zoneLabel.position.set(-FH + ZS * 1.5, 0.08, -FH - 0.05);
+scene.add(zoneLabel);
+
+const sensorLabel = makeLabel('VL53L8CX', 20);
+sensorLabel.position.set(0, H + 0.12, 0);
+scene.add(sensorLabel);
+
+// ── Resize handler ─────────────────────────────────────────────────────────
+function resize() {
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ── Render loop ────────────────────────────────────────────────────────────
+(function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+})();
+</script>
+</body>
+</html>
